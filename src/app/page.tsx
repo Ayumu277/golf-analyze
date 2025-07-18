@@ -62,15 +62,25 @@ export default function Home() {
     setShowResult(false);
 
     try {
-      // ファイルサイズチェック（Vercelの実際の制限はより小さい可能性があるため50MBに調整）
-      const maxSize = 50 * 1024 * 1024; // 50MB（Vercelの安全な制限）
+      // ファイルサイズチェック（Vercelの実際の制限に合わせて30MBに調整）
+      const maxSize = 30 * 1024 * 1024; // 30MB（Vercelの安全な制限）
       if (selectedFile.size > maxSize) {
-        throw new Error('動画ファイルのサイズが50MBを超えています。Vercelの制限により、より小さいファイルを選択してください。');
+        throw new Error(`動画ファイルのサイズが30MBを超えています（現在: ${(selectedFile.size / 1024 / 1024).toFixed(2)}MB）。Vercelの制限により、より小さいファイルを選択してください。`);
+      }
+
+      // Base64エンコード後のサイズを事前に計算
+      const estimatedBase64Size = Math.ceil(selectedFile.size * 4 / 3);
+      const maxBase64Size = 40 * 1024 * 1024; // 40MB（Base64エンコード後の制限）
+
+      if (estimatedBase64Size > maxBase64Size) {
+        throw new Error(`Base64エンコード後のサイズが大きすぎます（推定: ${(estimatedBase64Size / 1024 / 1024).toFixed(2)}MB）。より小さい動画ファイルを選択してください。`);
       }
 
       // ファイルをBase64に変換
       console.log('動画ファイルをBase64に変換中... (サイズ:', Math.round(selectedFile.size / 1024 / 1024), 'MB)');
       const videoBase64 = await fileToBase64(selectedFile);
+
+      console.log('Base64エンコード完了 (エンコード後サイズ:', Math.round(videoBase64.length / 1024 / 1024), 'MB)');
 
       // Gemini APIに送信
       console.log('Gemini APIに解析リクエストを送信中...');
@@ -87,11 +97,13 @@ export default function Home() {
       // HTTPステータスコードを先にチェック
       if (!response.ok) {
         if (response.status === 413) {
-          throw new Error('ファイルサイズが大きすぎます。Vercelの制限により、50MB以下のファイルをご利用ください。');
+          throw new Error('リクエストサイズが大きすぎます。動画ファイルをより小さく圧縮してください（推奨: 20MB以下）。');
         } else if (response.status === 500) {
           throw new Error('サーバーエラーが発生しました。しばらく待ってから再試行してください。');
         } else if (response.status === 400) {
           throw new Error('リクエストが無効です。ファイル形式を確認してください。');
+        } else if (response.status === 504) {
+          throw new Error('タイムアウトエラーが発生しました。より小さいファイルで再試行してください。');
         } else {
           throw new Error(`HTTPエラー: ${response.status} - サーバーで問題が発生しました。`);
         }
@@ -123,7 +135,11 @@ export default function Home() {
       if (error instanceof Error) {
         if (error.message.includes('API キー')) {
           errorMessage = 'Gemini API キーが設定されていません。環境変数を確認してください。';
-        } else if (error.message.includes('50MB') || error.message.includes('ファイルサイズ')) {
+        } else if (error.message.includes('30MB') || error.message.includes('ファイルサイズ') || error.message.includes('Base64')) {
+          errorMessage = error.message;
+        } else if (error.message.includes('リクエストサイズ')) {
+          errorMessage = error.message;
+        } else if (error.message.includes('タイムアウト')) {
           errorMessage = error.message;
         } else if (error.message.includes('ネットワーク')) {
           errorMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
@@ -212,7 +228,7 @@ export default function Home() {
                   クリックして動画ファイルを選択
                 </p>
                 <p className="text-sm text-gray-500">
-                  MP4, MOV, AVI などの動画ファイル（最大50MB推奨）
+                  MP4, MOV, AVI などの動画ファイル（最大30MB推奨）
                 </p>
               </label>
 
@@ -224,9 +240,17 @@ export default function Home() {
                   <p className="text-green-600 text-sm">
                     サイズ: {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                   </p>
-                  {selectedFile.size > 50 * 1024 * 1024 && (
+                  <p className="text-blue-600 text-xs">
+                    推定エンコード後サイズ: {Math.ceil(selectedFile.size * 4 / 3 / 1024 / 1024)} MB
+                  </p>
+                  {selectedFile.size > 30 * 1024 * 1024 && (
                     <p className="text-red-600 text-sm mt-1">
-                      ⚠️ ファイルサイズが50MBを超えています（Vercel制限）
+                      ⚠️ ファイルサイズが30MBを超えています（Vercel制限）
+                    </p>
+                  )}
+                  {Math.ceil(selectedFile.size * 4 / 3) > 40 * 1024 * 1024 && (
+                    <p className="text-red-600 text-sm mt-1">
+                      ⚠️ エンコード後サイズが40MBを超えています
                     </p>
                   )}
                 </div>
@@ -264,9 +288,9 @@ export default function Home() {
             <button
               id="analyze-button"
               onClick={handleAnalyze}
-              disabled={!selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 50 * 1024 * 1024)}
+              disabled={!selectedFile || isAnalyzing || (selectedFile && (selectedFile.size > 30 * 1024 * 1024 || Math.ceil(selectedFile.size * 4 / 3) > 40 * 1024 * 1024))}
               className={`w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all ${
-                !selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 50 * 1024 * 1024)
+                !selectedFile || isAnalyzing || (selectedFile && (selectedFile.size > 30 * 1024 * 1024 || Math.ceil(selectedFile.size * 4 / 3) > 40 * 1024 * 1024))
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
               }`}
