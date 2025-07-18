@@ -205,32 +205,64 @@ export default function Home() {
                 className="hidden"
                 id="upload"
               />
-              <label
-                htmlFor="upload"
-                className="cursor-pointer block"
-              >
-                <div className="mb-4">
-                  <svg
-                    className="mx-auto h-12 w-12 text-gray-400"
-                    stroke="currentColor"
-                    fill="none"
-                    viewBox="0 0 48 48"
-                  >
-                    <path
-                      d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+
+              {!videoPreviewUrl ? (
+                // 動画がない場合のアップロードUI
+                <label
+                  htmlFor="upload"
+                  className="cursor-pointer block"
+                >
+                  <div className="mb-4">
+                    <svg
+                      className="mx-auto h-12 w-12 text-gray-400"
+                      stroke="currentColor"
+                      fill="none"
+                      viewBox="0 0 48 48"
+                    >
+                      <path
+                        d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </div>
+                  <p className="text-lg text-gray-600 mb-2">
+                    クリックして動画ファイルを選択
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    MP4, MOV, AVI などの動画ファイル（最大30MB推奨）
+                  </p>
+                </label>
+              ) : (
+                // 動画がある場合のプレビューUI
+                <div className="space-y-4">
+                  {/* 動画プレイヤー */}
+                  <div className="relative bg-black rounded-lg overflow-hidden">
+                    <video
+                      src={videoPreviewUrl}
+                      controls
+                      className="w-full max-h-96 object-contain"
+                      preload="metadata"
+                    >
+                      お使いのブラウザは動画の再生をサポートしていません。
+                    </video>
+                  </div>
+
+                  {/* ファイル情報と再選択ボタン */}
+                  <div className="text-center space-y-2">
+                    <p className="text-sm text-gray-600">
+                      この動画が解析されます。再生して内容を確認してください。
+                    </p>
+                    <label
+                      htmlFor="upload"
+                      className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer text-sm"
+                    >
+                      📁 別の動画を選択
+                    </label>
+                  </div>
                 </div>
-                <p className="text-lg text-gray-600 mb-2">
-                  クリックして動画ファイルを選択
-                </p>
-                <p className="text-sm text-gray-500">
-                  MP4, MOV, AVI などの動画ファイル（最大30MB推奨）
-                </p>
-              </label>
+              )}
 
               {selectedFile && (
                 <div className="mt-4 p-3 bg-green-50 rounded-lg">
@@ -256,28 +288,6 @@ export default function Home() {
                 </div>
               )}
             </div>
-
-            {/* 動画プレビュー */}
-            {videoPreviewUrl && (
-              <div className="mt-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">
-                  📺 動画プレビュー
-                </h3>
-                <div className="relative bg-black rounded-lg overflow-hidden">
-                  <video
-                    src={videoPreviewUrl}
-                    controls
-                    className="w-full max-h-96 object-contain"
-                    preload="metadata"
-                  >
-                    お使いのブラウザは動画の再生をサポートしていません。
-                  </video>
-                </div>
-                <p className="text-sm text-gray-500 mt-2 text-center">
-                  この動画が解析されます。再生して内容を確認してください。
-                </p>
-              </div>
-            )}
           </div>
 
           {/* 解析ボタンセクション */}
