@@ -242,7 +242,7 @@ export default function Home() {
         } else if (error.message.includes('CORS')) {
           errorMessage = 'CORS エラーが発生しました。ブラウザのセキュリティ設定またはネットワーク環境を確認してください。';
         } else if (error.message.includes('network') || error.message.includes('fetch')) {
-          errorMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
+          errorMessage = 'アップロードされたファイルを読み取れません。アップロードし直すか、ファイルに問題がないかご確認ください。';
         } else if (error.message.includes('timeout')) {
           errorMessage = 'ネットワークタイムアウトエラーが発生しました。より小さいファイルで再試行してください。';
         } else if (error.message.includes('rate limit') || error.message.includes('quota')) {
