@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "src/app/api/analyze/route.ts": {
-      "maxDuration": 300
-    }
-  },
   "crons": [],
   "rewrites": [
     {
@@ -26,23 +21,6 @@
         {
           "key": "X-XSS-Protection",
           "value": "1; mode=block"
-        }
-      ]
-    },
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, PUT, DELETE, OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, Authorization"
         }
       ]
     }

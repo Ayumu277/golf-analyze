@@ -12,7 +12,7 @@ export default function Home() {
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && file.type.startsWith('video/')) {
+    if (file && isValidVideoFile(file)) {
       setSelectedFile(file);
       setAnalysisResult(''); // 新しいファイルが選択されたら結果をクリア
       setShowResult(false);
@@ -20,8 +20,16 @@ export default function Home() {
       // 動画プレビューURLを作成
       const url = URL.createObjectURL(file);
       setVideoPreviewUrl(url);
+
+      // ファイル形式情報をコンソールに出力
+      console.log('選択された動画ファイル:', {
+        name: file.name,
+        size: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+        type: file.type,
+        detectedMimeType: getVideoMimeType(file)
+      });
     } else {
-      alert('動画ファイルを選択してください。');
+      alert('対応していない動画ファイル形式です。\n\n対応形式：\nMP4, MOV, AVI, MKV, WebM, WMV, FLV, 3GP, M4V, OGV');
     }
   };
 
@@ -50,6 +58,77 @@ export default function Home() {
       };
       reader.onerror = error => reject(error);
     });
+  };
+
+  // 動画ファイル形式をGemini API対応のmimeTypeに変換する関数
+  const getVideoMimeType = (file: File): string => {
+    const fileName = file.name.toLowerCase();
+    const fileType = file.type.toLowerCase();
+
+    // ファイル拡張子から判定
+    if (fileName.endsWith('.mp4')) {
+      return 'video/mp4';
+    } else if (fileName.endsWith('.mov') || fileName.endsWith('.qt')) {
+      return 'video/mp4'; // MOVをMP4として送信（Gemini APIの互換性向上）
+    } else if (fileName.endsWith('.avi')) {
+      return 'video/mp4'; // AVIもMP4として送信
+    } else if (fileName.endsWith('.mkv')) {
+      return 'video/mp4'; // MKVもMP4として送信
+    } else if (fileName.endsWith('.webm')) {
+      return 'video/webm'; // WebMはサポートされている場合が多い
+    } else if (fileName.endsWith('.wmv')) {
+      return 'video/mp4'; // WMVもMP4として送信
+    } else if (fileName.endsWith('.flv')) {
+      return 'video/mp4'; // FLVもMP4として送信
+    } else if (fileName.endsWith('.3gp') || fileName.endsWith('.3gpp')) {
+      return 'video/3gpp'; // 3GPPはサポートされている場合がある
+    } else if (fileName.endsWith('.m4v')) {
+      return 'video/mp4'; // M4VはMP4として送信
+    } else if (fileName.endsWith('.ogv')) {
+      return 'video/mp4'; // OGVもMP4として送信
+    }
+
+    // MIMEタイプから判定
+    if (fileType.includes('mp4')) {
+      return 'video/mp4';
+    } else if (fileType.includes('quicktime') || fileType.includes('mov')) {
+      return 'video/mp4'; // QuickTime MOVをMP4として送信
+    } else if (fileType.includes('webm')) {
+      return 'video/webm';
+    } else if (fileType.includes('3gpp')) {
+      return 'video/3gpp';
+    }
+
+    // デフォルトはMP4（最も互換性が高い）
+    return 'video/mp4';
+  };
+
+  // 動画ファイル形式をチェックする関数
+  const isValidVideoFile = (file: File): boolean => {
+    const fileName = file.name.toLowerCase();
+    const fileType = file.type.toLowerCase();
+
+    // 対応している拡張子
+    const supportedExtensions = [
+      '.mp4', '.mov', '.qt', '.avi', '.mkv', '.webm',
+      '.wmv', '.flv', '.3gp', '.3gpp', '.m4v', '.ogv'
+    ];
+
+    // 対応しているMIMEタイプ
+    const supportedMimeTypes = [
+      'video/mp4', 'video/quicktime', 'video/x-msvideo',
+      'video/x-matroska', 'video/webm', 'video/x-ms-wmv',
+      'video/x-flv', 'video/3gpp', 'video/x-m4v'
+    ];
+
+    // 拡張子チェック
+    const hasValidExtension = supportedExtensions.some(ext => fileName.endsWith(ext));
+
+    // MIMEタイプチェック（ブラウザが認識した場合）
+    const hasValidMimeType = fileType.startsWith('video/') ||
+                            supportedMimeTypes.some(mime => fileType.includes(mime));
+
+    return hasValidExtension || hasValidMimeType;
   };
 
   const handleAnalyze = async () => {
@@ -110,7 +189,7 @@ export default function Home() {
       const videoPart = {
         inlineData: {
           data: videoBase64,
-          mimeType: selectedFile.type || 'video/mp4',
+          mimeType: getVideoMimeType(selectedFile),
         },
       };
 
@@ -206,7 +285,7 @@ export default function Home() {
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors">
               <input
                 type="file"
-                accept="video/*"
+                accept="video/*,.mp4,.mov,.qt,.avi,.mkv,.webm,.wmv,.flv,.3gp,.3gpp,.m4v,.ogv"
                 onChange={handleFileChange}
                 className="hidden"
                 id="upload"
@@ -237,7 +316,10 @@ export default function Home() {
                     クリックして動画ファイルを選択
                   </p>
                   <p className="text-sm text-gray-500">
-                    MP4, MOV, AVI などの動画ファイル（最大30MB推奨）
+                    対応形式：MP4, MOV, AVI, MKV, WebM, WMV, FLV, 3GP, M4V, OGV
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    最大30MB推奨・iPhone MOVファイル対応
                   </p>
                 </label>
               ) : (
@@ -278,12 +360,15 @@ export default function Home() {
                   <p className="text-green-600 text-sm">
                     サイズ: {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                   </p>
+                  <p className="text-purple-600 text-xs">
+                    ファイル形式: {selectedFile.type || '不明'} → {getVideoMimeType(selectedFile)}
+                  </p>
                   <p className="text-blue-600 text-xs">
                     推定エンコード後サイズ: {Math.ceil(selectedFile.size * 4 / 3 / 1024 / 1024)} MB
                   </p>
                   {selectedFile.size > 30 * 1024 * 1024 && (
                     <p className="text-red-600 text-sm mt-1">
-                      ⚠️ ファイルサイズが30MBを超えています（Vercel制限）
+                      ⚠️ ファイルサイズが30MBを超えています
                     </p>
                   )}
                   {Math.ceil(selectedFile.size * 4 / 3) > 40 * 1024 * 1024 && (
