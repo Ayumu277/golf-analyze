@@ -193,10 +193,23 @@ export default function Home() {
         },
       };
 
-      // Gemini APIに直接送信
+      // 5分間のタイムアウト設定付きでGemini APIに送信
       console.log('Gemini APIに解析リクエストを送信中...');
       const startTime = Date.now();
-      const result = await model.generateContent([prompt, videoPart]);
+
+      // タイムアウト処理のPromiseを作成（5分 = 300秒）
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('TIMEOUT_5_MINUTES'));
+        }, 300000); // 5分 = 300,000ms
+      });
+
+      // Gemini API呼び出しのPromiseとタイムアウトをレース
+      const result = await Promise.race([
+        model.generateContent([prompt, videoPart]),
+        timeoutPromise
+      ]);
+
       const response = await result.response;
       const analysisText = response.text();
       const endTime = Date.now();
@@ -220,7 +233,9 @@ export default function Home() {
       let errorMessage = '解析中にエラーが発生しました。';
 
       if (error instanceof Error) {
-        if (error.message.includes('API キー') || error.message.includes('NEXT_PUBLIC_GEMINI_API_KEY')) {
+        if (error.message === 'TIMEOUT_5_MINUTES') {
+          errorMessage = '解析がタイムアウトしました（5分経過）。\n\n以下をお試しください：\n• より小さいファイルサイズの動画を使用\n• 動画の長さを短くする（30秒以内推奨）\n• しばらく時間をおいてから再試行';
+        } else if (error.message.includes('API キー') || error.message.includes('NEXT_PUBLIC_GEMINI_API_KEY')) {
           errorMessage = 'Gemini API キーが設定されていません。環境変数 NEXT_PUBLIC_GEMINI_API_KEY を確認してください。';
         } else if (error.message.includes('30MB') || error.message.includes('ファイルサイズ') || error.message.includes('Base64')) {
           errorMessage = error.message;
@@ -229,7 +244,7 @@ export default function Home() {
         } else if (error.message.includes('network') || error.message.includes('fetch')) {
           errorMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
         } else if (error.message.includes('timeout')) {
-          errorMessage = 'タイムアウトエラーが発生しました。より小さいファイルで再試行してください。';
+          errorMessage = 'ネットワークタイムアウトエラーが発生しました。より小さいファイルで再試行してください。';
         } else if (error.message.includes('rate limit') || error.message.includes('quota')) {
           errorMessage = 'API使用量制限に達しました。しばらく待ってから再試行してください。';
         } else {
@@ -406,7 +421,7 @@ export default function Home() {
               )}
             </button>
             <p className="text-xs text-gray-500 mt-2 text-center">
-              ※ ファイルサイズが大きい場合、解析に数分かかることがあります
+              ※ ファイルサイズが大きい場合、解析に数分かかることがあります（最大5分でタイムアウト）
             </p>
           </div>
 
@@ -442,6 +457,9 @@ export default function Home() {
                     </p>
                     <p className="text-sm text-blue-600 animate-pulse">
                       スイングの詳細な分析を行っています
+                    </p>
+                    <p className="text-xs text-blue-500 mt-2">
+                      最大5分間のタイムアウト設定済み
                     </p>
 
                     {/* プログレスバー風アニメーション */}
