@@ -8,12 +8,6 @@ const nextConfig = {
     // 大きなファイルサイズに対応
     serverMinification: false,
   },
-  // API Routes の設定
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-  },
 };
 
 export default withPWA({

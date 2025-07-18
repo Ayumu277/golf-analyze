@@ -30,5 +30,8 @@
   "engines": {
     "node": ">=18.17.0",
     "npm": ">=9.0.0"
+  },
+  "resolutions": {
+    "@types/minimatch": "npm:@types/minimatch@^5.1.2"
   }
 }
