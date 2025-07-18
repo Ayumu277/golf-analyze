@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string>('');
   const [showResult, setShowResult] = useState(false);
@@ -14,10 +15,23 @@ export default function Home() {
       setSelectedFile(file);
       setAnalysisResult(''); // 新しいファイルが選択されたら結果をクリア
       setShowResult(false);
+
+      // 動画プレビューURLを作成
+      const url = URL.createObjectURL(file);
+      setVideoPreviewUrl(url);
     } else {
       alert('動画ファイルを選択してください。');
     }
   };
+
+  // コンポーネントのクリーンアップ時にURLを解放
+  useEffect(() => {
+    return () => {
+      if (videoPreviewUrl) {
+        URL.revokeObjectURL(videoPreviewUrl);
+      }
+    };
+  }, [videoPreviewUrl]);
 
   // ファイルをBase64に変換する関数
   const fileToBase64 = (file: File): Promise<string> => {
@@ -48,10 +62,10 @@ export default function Home() {
     setShowResult(false);
 
     try {
-      // ファイルサイズチェック（Vercelの制限に合わせて100MB）
-      const maxSize = 100 * 1024 * 1024; // 100MB
+      // ファイルサイズチェック（Vercelの実際の制限はより小さい可能性があるため50MBに調整）
+      const maxSize = 50 * 1024 * 1024; // 50MB（Vercelの安全な制限）
       if (selectedFile.size > maxSize) {
-        throw new Error('動画ファイルのサイズが100MBを超えています。Vercelの制限により、より小さいファイルを選択してください。');
+        throw new Error('動画ファイルのサイズが50MBを超えています。Vercelの制限により、より小さいファイルを選択してください。');
       }
 
       // ファイルをBase64に変換
@@ -70,9 +84,23 @@ export default function Home() {
         }),
       });
 
+      // HTTPステータスコードを先にチェック
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || '解析APIでエラーが発生しました');
+        if (response.status === 413) {
+          throw new Error('ファイルサイズが大きすぎます。Vercelの制限により、50MB以下のファイルをご利用ください。');
+        } else if (response.status === 500) {
+          throw new Error('サーバーエラーが発生しました。しばらく待ってから再試行してください。');
+        } else if (response.status === 400) {
+          throw new Error('リクエストが無効です。ファイル形式を確認してください。');
+        } else {
+          throw new Error(`HTTPエラー: ${response.status} - サーバーで問題が発生しました。`);
+        }
+      }
+
+      // レスポンスのContent-Typeを確認
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('サーバーから無効なレスポンスが返されました。');
       }
 
       const result = await response.json();
@@ -95,10 +123,14 @@ export default function Home() {
       if (error instanceof Error) {
         if (error.message.includes('API キー')) {
           errorMessage = 'Gemini API キーが設定されていません。環境変数を確認してください。';
-        } else if (error.message.includes('100MB')) {
+        } else if (error.message.includes('50MB') || error.message.includes('ファイルサイズ')) {
           errorMessage = error.message;
         } else if (error.message.includes('ネットワーク')) {
           errorMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
+        } else if (error.message.includes('HTTPエラー')) {
+          errorMessage = error.message;
+        } else if (error.message.includes('無効なレスポンス')) {
+          errorMessage = 'サーバーから予期しないレスポンスが返されました。管理者にお問い合わせください。';
         } else {
           errorMessage = `エラー: ${error.message}`;
         }
@@ -180,7 +212,7 @@ export default function Home() {
                   クリックして動画ファイルを選択
                 </p>
                 <p className="text-sm text-gray-500">
-                  MP4, MOV, AVI などの動画ファイル（最大100MB）
+                  MP4, MOV, AVI などの動画ファイル（最大50MB推奨）
                 </p>
               </label>
 
@@ -192,14 +224,36 @@ export default function Home() {
                   <p className="text-green-600 text-sm">
                     サイズ: {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                   </p>
-                  {selectedFile.size > 100 * 1024 * 1024 && (
+                  {selectedFile.size > 50 * 1024 * 1024 && (
                     <p className="text-red-600 text-sm mt-1">
-                      ⚠️ ファイルサイズが100MBを超えています（Vercel制限）
+                      ⚠️ ファイルサイズが50MBを超えています（Vercel制限）
                     </p>
                   )}
                 </div>
               )}
             </div>
+
+            {/* 動画プレビュー */}
+            {videoPreviewUrl && (
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">
+                  📺 動画プレビュー
+                </h3>
+                <div className="relative bg-black rounded-lg overflow-hidden">
+                  <video
+                    src={videoPreviewUrl}
+                    controls
+                    className="w-full max-h-96 object-contain"
+                    preload="metadata"
+                  >
+                    お使いのブラウザは動画の再生をサポートしていません。
+                  </video>
+                </div>
+                <p className="text-sm text-gray-500 mt-2 text-center">
+                  この動画が解析されます。再生して内容を確認してください。
+                </p>
+              </div>
+            )}
           </div>
 
           {/* 解析ボタンセクション */}
@@ -210,9 +264,9 @@ export default function Home() {
             <button
               id="analyze-button"
               onClick={handleAnalyze}
-              disabled={!selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 100 * 1024 * 1024)}
+              disabled={!selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 50 * 1024 * 1024)}
               className={`w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all ${
-                !selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 100 * 1024 * 1024)
+                !selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 50 * 1024 * 1024)
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
               }`}
@@ -312,6 +366,7 @@ export default function Home() {
                           setAnalysisResult('');
                           setShowResult(false);
                           setSelectedFile(null);
+                          setVideoPreviewUrl(null);
                         }}
                         className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
                       >

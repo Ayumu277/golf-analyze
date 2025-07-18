@@ -27,13 +27,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ファイルサイズチェック（Vercelの制限に合わせて100MBに調整）
-    const maxSize = 100 * 1024 * 1024; // 100MB (Vercel Pro planの制限内)
+    // ファイルサイズチェック（Vercelの実際の制限に合わせて50MBに調整）
+    const maxSize = 50 * 1024 * 1024; // 50MB（Vercelの安全な制限）
     const estimatedSize = (videoBase64.length * 3) / 4; // Base64から実際のバイト数を推定
 
     if (estimatedSize > maxSize) {
       return NextResponse.json(
-        { error: '動画ファイルのサイズが100MBを超えています。Vercelの制限により、より小さいファイルをご利用ください。' },
+        { error: '動画ファイルのサイズが50MBを超えています。Vercelの制限により、より小さいファイルをご利用ください。' },
         { status: 413 }
       );
     }
@@ -104,7 +104,7 @@ export async function GET() {
     message: 'Golf Analyze API - POST /api/analyze にbase64動画を送信してください',
     endpoint: '/api/analyze',
     method: 'POST',
-    maxFileSize: '100MB (Vercel制限)',
+    maxFileSize: '50MB (Vercel制限)',
     body: {
       videoBase64: 'string (base64 encoded video data)',
     }
