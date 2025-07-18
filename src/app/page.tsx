@@ -1,17 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string>('');
+  const [showResult, setShowResult] = useState(false);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('video/')) {
       setSelectedFile(file);
       setAnalysisResult(''); // 新しいファイルが選択されたら結果をクリア
+      setShowResult(false);
     } else {
       alert('動画ファイルを選択してください。');
     }
@@ -43,12 +45,13 @@ export default function Home() {
 
     setIsAnalyzing(true);
     setAnalysisResult('');
+    setShowResult(false);
 
     try {
-      // ファイルサイズチェック（500MB制限）
-      const maxSize = 500 * 1024 * 1024; // 500MB
+      // ファイルサイズチェック（Vercelの制限に合わせて100MB）
+      const maxSize = 100 * 1024 * 1024; // 100MB
       if (selectedFile.size > maxSize) {
-        throw new Error('動画ファイルのサイズが500MBを超えています。より小さいファイルを選択してください。');
+        throw new Error('動画ファイルのサイズが100MBを超えています。Vercelの制限により、より小さいファイルを選択してください。');
       }
 
       // ファイルをBase64に変換
@@ -76,6 +79,10 @@ export default function Home() {
 
       if (result.success) {
         setAnalysisResult(result.analysis + '\n\n📊 解析されたファイルサイズ: ' + result.fileSize);
+        // 結果設定後、少し遅延してアニメーション開始
+        setTimeout(() => {
+          setShowResult(true);
+        }, 100);
       } else {
         throw new Error(result.error || '解析結果の取得に失敗しました');
       }
@@ -87,8 +94,8 @@ export default function Home() {
 
       if (error instanceof Error) {
         if (error.message.includes('API キー')) {
-          errorMessage = 'Gemini API キーが設定されていません。.env.localファイルを確認してください。';
-        } else if (error.message.includes('500MB')) {
+          errorMessage = 'Gemini API キーが設定されていません。環境変数を確認してください。';
+        } else if (error.message.includes('100MB')) {
           errorMessage = error.message;
         } else if (error.message.includes('ネットワーク')) {
           errorMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
@@ -98,10 +105,26 @@ export default function Home() {
       }
 
       setAnalysisResult(`❌ ${errorMessage}\n\n詳細については開発者コンソールをご確認ください。`);
+      setTimeout(() => {
+        setShowResult(true);
+      }, 100);
     } finally {
       setIsAnalyzing(false);
     }
   };
+
+  // 結果表示のアニメーション効果
+  useEffect(() => {
+    if (analysisResult && showResult) {
+      const resultElement = document.getElementById('result');
+      if (resultElement) {
+        resultElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+      }
+    }
+  }, [showResult, analysisResult]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 p-4">
@@ -132,10 +155,10 @@ export default function Home() {
                 accept="video/*"
                 onChange={handleFileChange}
                 className="hidden"
-                id="video-upload"
+                id="upload"
               />
               <label
-                htmlFor="video-upload"
+                htmlFor="upload"
                 className="cursor-pointer block"
               >
                 <div className="mb-4">
@@ -157,7 +180,7 @@ export default function Home() {
                   クリックして動画ファイルを選択
                 </p>
                 <p className="text-sm text-gray-500">
-                  MP4, MOV, AVI などの動画ファイル（最大500MB）
+                  MP4, MOV, AVI などの動画ファイル（最大100MB）
                 </p>
               </label>
 
@@ -169,9 +192,9 @@ export default function Home() {
                   <p className="text-green-600 text-sm">
                     サイズ: {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                   </p>
-                  {selectedFile.size > 500 * 1024 * 1024 && (
+                  {selectedFile.size > 100 * 1024 * 1024 && (
                     <p className="text-red-600 text-sm mt-1">
-                      ⚠️ ファイルサイズが500MBを超えています
+                      ⚠️ ファイルサイズが100MBを超えています（Vercel制限）
                     </p>
                   )}
                 </div>
@@ -187,9 +210,9 @@ export default function Home() {
             <button
               id="analyze-button"
               onClick={handleAnalyze}
-              disabled={!selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 500 * 1024 * 1024)}
+              disabled={!selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 100 * 1024 * 1024)}
               className={`w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all ${
-                !selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 500 * 1024 * 1024)
+                !selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 100 * 1024 * 1024)
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
               }`}
@@ -215,7 +238,7 @@ export default function Home() {
             </h2>
             <div
               id="result"
-              className={`min-h-[200px] p-4 rounded-lg border-2 ${
+              className={`min-h-[200px] p-4 rounded-lg border-2 transition-all duration-700 ease-in-out ${
                 analysisResult
                   ? analysisResult.startsWith('❌')
                     ? 'bg-red-50 border-red-200'
@@ -223,15 +246,86 @@ export default function Home() {
                   : 'bg-gray-50 border-gray-200'
               }`}
             >
-              {analysisResult ? (
-                <pre className="whitespace-pre-wrap text-gray-800 text-sm leading-relaxed font-sans">
-                  {analysisResult}
-                </pre>
+              {isAnalyzing ? (
+                /* ローディング表示 */
+                <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-blue-600">
+                  <div className="relative">
+                    {/* メインローディングスピナー */}
+                    <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mb-4"></div>
+
+                    {/* パルス効果 */}
+                    <div className="absolute inset-0 rounded-full animate-ping bg-blue-400 opacity-20"></div>
+                  </div>
+
+                  <div className="text-center">
+                    <p className="text-lg font-semibold text-blue-700 mb-2">
+                      🤖 Gemini AIが動画を解析中...
+                    </p>
+                    <p className="text-sm text-blue-600 animate-pulse">
+                      スイングの詳細な分析を行っています
+                    </p>
+
+                    {/* プログレスバー風アニメーション */}
+                    <div className="w-64 bg-blue-100 rounded-full h-2 mt-4 mx-auto">
+                      <div className="bg-blue-600 h-2 rounded-full animate-pulse"></div>
+                    </div>
+                  </div>
+                </div>
+              ) : analysisResult ? (
+                /* 結果表示（アニメーション付き） */
+                <div
+                  className={`transform transition-all duration-700 ease-out ${
+                    showResult
+                      ? 'translate-y-0 opacity-100 scale-100'
+                      : 'translate-y-4 opacity-0 scale-95'
+                  }`}
+                >
+                  <div className="flex items-start space-x-3 mb-3">
+                    <div className="flex-shrink-0">
+                      {analysisResult.startsWith('❌') ? (
+                        <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                          <span className="text-red-600 text-lg">❌</span>
+                        </div>
+                      ) : (
+                        <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                          <span className="text-green-600 text-lg">✅</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-lg text-gray-800 mb-2">
+                        {analysisResult.startsWith('❌') ? '解析エラー' : '解析完了！'}
+                      </h3>
+                    </div>
+                  </div>
+
+                  <div className="bg-white bg-opacity-70 rounded-lg p-4 border border-gray-200">
+                    <pre className="whitespace-pre-wrap text-gray-800 text-sm leading-relaxed font-sans">
+                      {analysisResult}
+                    </pre>
+                  </div>
+
+                  {!analysisResult.startsWith('❌') && (
+                    <div className="mt-4 text-center">
+                      <button
+                        onClick={() => {
+                          setAnalysisResult('');
+                          setShowResult(false);
+                          setSelectedFile(null);
+                        }}
+                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                      >
+                        🔄 新しい動画を解析
+                      </button>
+                    </div>
+                  )}
+                </div>
               ) : (
+                /* 初期状態 */
                 <div className="flex items-center justify-center h-full text-gray-500">
                   <div className="text-center">
                     <svg
-                      className="mx-auto h-12 w-12 mb-3"
+                      className="mx-auto h-12 w-12 mb-3 text-gray-400"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -243,8 +337,8 @@ export default function Home() {
                         d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                       />
                     </svg>
-                    <p>Gemini AIの解析結果がここに表示されます</p>
-                    <p className="text-sm mt-1">
+                    <p className="text-lg font-medium text-gray-600">Gemini AIの解析結果がここに表示されます</p>
+                    <p className="text-sm mt-1 text-gray-500">
                       動画をアップロードして解析を開始してください
                     </p>
                   </div>

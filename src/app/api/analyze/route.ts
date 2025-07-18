@@ -1,8 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextRequest, NextResponse } from 'next/server';
 
-// API Route の設定（500MBまでのリクエストボディを許可）
-export const maxDuration = 300; // 5分のタイムアウト（大きなファイル処理のため）
+// API Route の設定（Vercel対応）
+export const maxDuration = 300; // 5分のタイムアウト（Vercel Pro planで利用可能）
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
@@ -27,13 +27,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ファイルサイズチェック（Base64データから推定）
-    const maxSize = 500 * 1024 * 1024; // 500MB
+    // ファイルサイズチェック（Vercelの制限に合わせて100MBに調整）
+    const maxSize = 100 * 1024 * 1024; // 100MB (Vercel Pro planの制限内)
     const estimatedSize = (videoBase64.length * 3) / 4; // Base64から実際のバイト数を推定
 
     if (estimatedSize > maxSize) {
       return NextResponse.json(
-        { error: '動画ファイルのサイズが500MBを超えています' },
+        { error: '動画ファイルのサイズが100MBを超えています。Vercelの制限により、より小さいファイルをご利用ください。' },
         { status: 413 }
       );
     }
@@ -43,7 +43,17 @@ export async function POST(request: NextRequest) {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
     // プロンプトの定義
-    const prompt = 'このゴルフスイングを見て、フォームの良し悪し・改善点・評価を日本語で簡潔にアドバイスしてください。';
+    const prompt = `以下のゴルフスイング動画を見て、プレイヤーが今後より良いゴルフをするための、建設的で具体的なアドバイスを日本語で出力してください。
+
+---
+【スイング分析】
+このスイングの特徴と改善すべき点を、身体の使い方・クラブの動き・タイミングなどの観点から具体的に述べてください。ボールの方向性や飛距離に加えて、安定性・再現性・テンポなども含めてください。
+
+【改善アドバイス】
+プレイヤーが意識すべき重要な3〜5点を挙げ、それぞれ「なぜそれが重要なのか」「どうすれば改善できるのか」をシンプルに説明してください。抽象的な表現は避け、本人が実践できるような行動ベースのアドバイスを重視してください。
+
+【補足】
+すべての表現は前向きかつ尊重のあるトーンで書いてください。相手はゴルフをもっと上達させたいと願うプレイヤーであり、改善へのモチベーションを高められるような温かく誠実なフィードバックを心がけてください。`;
 
     // 動画データの準備
     const videoPart = {
@@ -94,7 +104,7 @@ export async function GET() {
     message: 'Golf Analyze API - POST /api/analyze にbase64動画を送信してください',
     endpoint: '/api/analyze',
     method: 'POST',
-    maxFileSize: '500MB',
+    maxFileSize: '100MB (Vercel制限)',
     body: {
       videoBase64: 'string (base64 encoded video data)',
     }
