@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -62,10 +63,16 @@ export default function Home() {
     setShowResult(false);
 
     try {
-      // ファイルサイズチェック（Vercelの実際の制限に合わせて30MBに調整）
-      const maxSize = 30 * 1024 * 1024; // 30MB（Vercelの安全な制限）
+      // API キーの確認
+      const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error('Gemini API キーが設定されていません。環境変数 NEXT_PUBLIC_GEMINI_API_KEY を確認してください。');
+      }
+
+      // ファイルサイズチェック
+      const maxSize = 30 * 1024 * 1024; // 30MB
       if (selectedFile.size > maxSize) {
-        throw new Error(`動画ファイルのサイズが30MBを超えています（現在: ${(selectedFile.size / 1024 / 1024).toFixed(2)}MB）。Vercelの制限により、より小さいファイルを選択してください。`);
+        throw new Error(`動画ファイルのサイズが30MBを超えています（現在: ${(selectedFile.size / 1024 / 1024).toFixed(2)}MB）。より小さいファイルを選択してください。`);
       }
 
       // Base64エンコード後のサイズを事前に計算
@@ -82,50 +89,51 @@ export default function Home() {
 
       console.log('Base64エンコード完了 (エンコード後サイズ:', Math.round(videoBase64.length / 1024 / 1024), 'MB)');
 
-      // Gemini APIに送信
-      console.log('Gemini APIに解析リクエストを送信中...');
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      // Gemini AI クライアントの初期化
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+      // プロンプトの定義
+      const prompt = `以下のゴルフスイング動画を見て、プレイヤーが今後より良いゴルフをするための、建設的で具体的なアドバイスを日本語で出力してください。
+
+---
+【スイング分析】
+このスイングの特徴と改善すべき点を、身体の使い方・クラブの動き・タイミングなどの観点から具体的に述べてください。ボールの方向性や飛距離に加えて、安定性・再現性・テンポなども含めてください。
+
+【改善アドバイス】
+プレイヤーが意識すべき重要な3〜5点を挙げ、それぞれ「なぜそれが重要なのか」「どうすれば改善できるのか」をシンプルに説明してください。抽象的な表現は避け、本人が実践できるような行動ベースのアドバイスを重視してください。
+
+【補足】
+すべての表現は前向きかつ尊重のあるトーンで書いてください。相手はゴルフをもっと上達させたいと願うプレイヤーであり、改善へのモチベーションを高められるような温かく誠実なフィードバックを心がけてください。`;
+
+      // 動画データの準備
+      const videoPart = {
+        inlineData: {
+          data: videoBase64,
+          mimeType: selectedFile.type || 'video/mp4',
         },
-        body: JSON.stringify({
-          videoBase64,
-        }),
-      });
+      };
 
-      // HTTPステータスコードを先にチェック
-      if (!response.ok) {
-        if (response.status === 413) {
-          throw new Error('リクエストサイズが大きすぎます。動画ファイルをより小さく圧縮してください（推奨: 20MB以下）。');
-        } else if (response.status === 500) {
-          throw new Error('サーバーエラーが発生しました。しばらく待ってから再試行してください。');
-        } else if (response.status === 400) {
-          throw new Error('リクエストが無効です。ファイル形式を確認してください。');
-        } else if (response.status === 504) {
-          throw new Error('タイムアウトエラーが発生しました。より小さいファイルで再試行してください。');
-        } else {
-          throw new Error(`HTTPエラー: ${response.status} - サーバーで問題が発生しました。`);
-        }
-      }
+      // Gemini APIに直接送信
+      console.log('Gemini APIに解析リクエストを送信中...');
+      const startTime = Date.now();
+      const result = await model.generateContent([prompt, videoPart]);
+      const response = await result.response;
+      const analysisText = response.text();
+      const endTime = Date.now();
 
-      // レスポンスのContent-Typeを確認
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('サーバーから無効なレスポンスが返されました。');
-      }
+      console.log(`解析完了 (処理時間: ${(endTime - startTime) / 1000}s)`);
 
-      const result = await response.json();
+      // 結果を表示
+      const processingTime = `${(endTime - startTime) / 1000}s`;
+      const fileSize = `${Math.round(selectedFile.size / 1024 / 1024)}MB`;
 
-      if (result.success) {
-        setAnalysisResult(result.analysis + '\n\n📊 解析されたファイルサイズ: ' + result.fileSize);
-        // 結果設定後、少し遅延してアニメーション開始
-        setTimeout(() => {
-          setShowResult(true);
-        }, 100);
-      } else {
-        throw new Error(result.error || '解析結果の取得に失敗しました');
-      }
+      setAnalysisResult(analysisText + `\n\n📊 解析されたファイルサイズ: ${fileSize}\n⏱️ 処理時間: ${processingTime}`);
+
+      // 結果設定後、少し遅延してアニメーション開始
+      setTimeout(() => {
+        setShowResult(true);
+      }, 100);
 
     } catch (error) {
       console.error('解析エラー:', error);
@@ -133,20 +141,18 @@ export default function Home() {
       let errorMessage = '解析中にエラーが発生しました。';
 
       if (error instanceof Error) {
-        if (error.message.includes('API キー')) {
-          errorMessage = 'Gemini API キーが設定されていません。環境変数を確認してください。';
+        if (error.message.includes('API キー') || error.message.includes('NEXT_PUBLIC_GEMINI_API_KEY')) {
+          errorMessage = 'Gemini API キーが設定されていません。環境変数 NEXT_PUBLIC_GEMINI_API_KEY を確認してください。';
         } else if (error.message.includes('30MB') || error.message.includes('ファイルサイズ') || error.message.includes('Base64')) {
           errorMessage = error.message;
-        } else if (error.message.includes('リクエストサイズ')) {
-          errorMessage = error.message;
-        } else if (error.message.includes('タイムアウト')) {
-          errorMessage = error.message;
-        } else if (error.message.includes('ネットワーク')) {
+        } else if (error.message.includes('CORS')) {
+          errorMessage = 'CORS エラーが発生しました。ブラウザのセキュリティ設定またはネットワーク環境を確認してください。';
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
           errorMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
-        } else if (error.message.includes('HTTPエラー')) {
-          errorMessage = error.message;
-        } else if (error.message.includes('無効なレスポンス')) {
-          errorMessage = 'サーバーから予期しないレスポンスが返されました。管理者にお問い合わせください。';
+        } else if (error.message.includes('timeout')) {
+          errorMessage = 'タイムアウトエラーが発生しました。より小さいファイルで再試行してください。';
+        } else if (error.message.includes('rate limit') || error.message.includes('quota')) {
+          errorMessage = 'API使用量制限に達しました。しばらく待ってから再試行してください。';
         } else {
           errorMessage = `エラー: ${error.message}`;
         }
