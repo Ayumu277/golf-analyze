@@ -76,8 +76,10 @@ export async function POST(request: NextRequest) {
         }
         const credentials = JSON.parse(keyFileContent);
 
-        const authClient = auth.fromJSON(credentials);
-        (authClient as any).scopes = ['https://www.googleapis.com/auth/cloud-platform'];
+        const authClient = auth.fromJSON({
+            ...credentials,
+            scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+        });
 
         const accessToken = await authClient.getAccessToken();
         apiKey = accessToken.token;
