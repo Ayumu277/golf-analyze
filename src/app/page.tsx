@@ -133,7 +133,7 @@ export default function Home() {
 
             // 全てFormDataで送信（サーバー側で20MB判定）
       console.log('📤 FormDataで送信');
-      
+
       const formData = new FormData();
       formData.append('file', selectedFile);
 

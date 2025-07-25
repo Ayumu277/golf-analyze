@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
+import { auth } from "google-auth-library"; // ★ Vercelで動かすために追加
 
 // 型定義
 interface GolfAnalysisRequest {
@@ -65,65 +66,51 @@ export async function POST(request: NextRequest) {
     let tempFilePath = '';
     let uploadedFileForDeletion: UploadedFile | null = null;
     const startTime = Date.now();
-
-    // API Key validation
-    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-    console.log('🔑 API Key確認:', {
-        exists: !!apiKey,
-        length: apiKey?.length || 0,
-        prefix: apiKey?.substring(0, 10) || 'なし'
-    });
-
-    if (!apiKey) {
-        console.error('❌ API Key未設定');
-        return NextResponse.json(
-            { error: 'NEXT_PUBLIC_GEMINI_API_KEYが設定されていません。' },
-            { status: 500 }
-        );
-    }
+    let apiKey: string | null | undefined; // finallyブロックで使うために関数スコープで宣言
 
     try {
+        // ▼▼▼ ここから認証方法を変更 ▼▼▼
+        const keyFileContent = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON;
+        if (!keyFileContent) {
+            throw new Error('サービスアカウントの環境変数が設定されていません。');
+        }
+        const credentials = JSON.parse(keyFileContent);
+
+        const authClient = auth.fromJSON(credentials);
+        (authClient as any).scopes = ['https://www.googleapis.com/auth/cloud-platform'];
+
+        const accessToken = await authClient.getAccessToken();
+        apiKey = accessToken.token;
+
+        if (!apiKey) {
+            throw new Error('サービスアカウントからアクセストークンを取得できませんでした。');
+        }
+        // ▲▲▲ 認証方法の変更ここまで ▲▲▲
+
         console.log('🏌️ ゴルフスイング動画解析リクエスト開始');
         console.log(`⏰ 開始時刻: ${new Date().toLocaleString('ja-JP')}`);
 
-        // ファイル受信と検証
-        console.log('🔄 ファイル受信開始');
         const requestData = await validateAndExtractFile(request);
         const { file, fileSize, fileSizeMB } = requestData;
 
         console.log(`📁 受信ファイル: ${file.name} (${fileSizeMB.toFixed(1)}MB)`);
-        console.log(`📊 ファイル詳細:`, {
-            size: fileSize,
-            type: file.type,
-            lastModified: file.lastModified,
-            isBase64Route: fileSize <= GEMINI_BASE64_LIMIT
-        });
 
-        // Gemini API初期化
         const genAI = new GoogleGenerativeAI(apiKey);
         const fileClient = new GoogleGenAI({ apiKey });
 
         let analysisResult: string;
 
         if (fileSize <= GEMINI_BASE64_LIMIT) {
-            // 20MB以下 → サーバー側でBase64変換
-            console.log('🔄 一時ファイル保存開始');
             tempFilePath = await saveTemporaryFile(file, tempDir);
-            console.log(`💾 一時ファイル保存完了: ${tempFilePath}`);
             analysisResult = await processWithBase64(genAI, tempFilePath, file.type);
         } else {
-            // 20MB超 → Files API使用
-            console.log('🔄 一時ファイル保存開始');
             tempFilePath = await saveTemporaryFile(file, tempDir);
-            console.log(`💾 一時ファイル保存完了: ${tempFilePath}`);
-
             const uploadedFile = await uploadFileWithFilesAPI(fileClient, tempFilePath, file);
             uploadedFileForDeletion = uploadedFile;
             analysisResult = await processWithFilesAPI(genAI, uploadedFile);
         }
 
         const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
-
         console.log('🎉 解析完了！');
         console.log(`⏱️ 総処理時間: ${processingTime}秒`);
 
@@ -137,26 +124,16 @@ export async function POST(request: NextRequest) {
                 method: fileSize <= GEMINI_BASE64_LIMIT ? 'Base64' : 'Files API'
             }
         };
-
         return NextResponse.json(response);
 
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        const errorStack = error instanceof Error ? error.stack : 'No stack trace';
-
-        console.error('❌ ゴルフスイング解析エラー:', {
-            message: errorMessage,
-            stack: errorStack,
-            error: error
-        });
-
+        console.error('❌ ゴルフスイング解析エラー:', { message: errorMessage });
         const errorResponse: GolfAnalysisResponse = {
             success: false,
             error: `解析に失敗しました: ${errorMessage}`
         };
-
         return NextResponse.json(errorResponse, { status: 500 });
-
     } finally {
         await cleanup(tempFilePath, uploadedFileForDeletion, apiKey);
     }
@@ -194,71 +171,42 @@ async function saveTemporaryFile(file: File, tempDir: string): Promise<string> {
 // Base64形式での処理（サーバー側変換）
 async function processWithBase64(genAI: GoogleGenerativeAI, tempFilePath: string, fileType?: string): Promise<string> {
     console.log('📊 20MB以下 → Base64形式で処理');
-
-    try {
-        console.log('🔄 ファイル読み込み開始');
-        const processedBuffer = await fs.readFile(tempFilePath);
-        console.log(`📏 ファイルバッファサイズ: ${processedBuffer.length} bytes`);
-
-        console.log('🔄 Base64変換開始');
-        const base64Data = processedBuffer.toString('base64');
-        console.log(`📏 Base64データサイズ: ${base64Data.length} chars`);
-
-        const mimeType = fileType || 'video/quicktime';
-        console.log(`✅ Base64準備完了: ${mimeType}`);
-
-        console.log('🔄 Gemini API呼び出し開始');
-        return await executeGeminiAnalysis(genAI, [
-            { text: GOLF_ANALYSIS_PROMPT },
-            { inlineData: { mimeType, data: base64Data } }
-        ], 'Server-side Base64');
-
-    } catch (error) {
-        console.error('❌ Base64処理エラー:', error);
-        throw error;
-    }
+    const processedBuffer = await fs.readFile(tempFilePath);
+    const base64Data = processedBuffer.toString('base64');
+    const mimeType = fileType || 'video/quicktime';
+    console.log(`✅ Base64準備完了: ${mimeType}`);
+    return await executeGeminiAnalysis(genAI, [
+        { text: GOLF_ANALYSIS_PROMPT },
+        { inlineData: { mimeType, data: base64Data } }
+    ], 'Server-side Base64');
 }
 
 // Files API使用でのファイルアップロード
 async function uploadFileWithFilesAPI(fileClient: GoogleGenAI, tempFilePath: string, file: File): Promise<UploadedFile> {
     console.log('🎬 20MB超 → Files API使用');
-
     const uploadedFile = await fileClient.files.upload({
         file: tempFilePath,
         config: { mimeType: file.type || 'video/quicktime' }
     });
-
     console.log(`✅ Files APIアップロード完了: ${uploadedFile.uri}`);
-
-    if (!uploadedFile.name) {
-        throw new Error('アップロードされたファイルの名前が取得できませんでした。');
-    }
-
-    // ファイル処理完了まで待機
     await waitForFileProcessing(fileClient, uploadedFile);
-
     return uploadedFile;
 }
 
 // ファイル処理完了待機
 async function waitForFileProcessing(fileClient: GoogleGenAI, uploadedFile: UploadedFile): Promise<void> {
     console.log('⏳ ファイルの処理待機中...');
-
     let attempts = 0;
     let currentFile = uploadedFile;
 
     while (currentFile.state === 'PROCESSING' && attempts < PROCESSING_MAX_ATTEMPTS) {
         await delay(PROCESSING_DELAY);
-
         if (!currentFile.name) {
             throw new Error('処理中にファイル名が失われました。');
         }
-
         currentFile = await fileClient.files.get({ name: currentFile.name });
         console.log(`   ...現在の状態: ${currentFile.state}`);
         attempts++;
-
-        // uploadedFileオブジェクトを更新
         Object.assign(uploadedFile, currentFile);
     }
 
@@ -266,7 +214,6 @@ async function waitForFileProcessing(fileClient: GoogleGenAI, uploadedFile: Uplo
         console.error('File processing failed with error:', currentFile.error);
         throw new Error(`ファイルの処理が完了しませんでした。状態: ${currentFile.state}`);
     }
-
     console.log('✅ ファイルがACTIVEになりました！');
 }
 
@@ -275,7 +222,6 @@ async function processWithFilesAPI(genAI: GoogleGenerativeAI, uploadedFile: Uplo
     if (!uploadedFile.mimeType || !uploadedFile.uri) {
         throw new Error('処理済みファイルのMIMEタイプまたはURIが取得できませんでした。');
     }
-
     return await executeGeminiAnalysis(genAI, [
         { text: GOLF_ANALYSIS_PROMPT },
         { fileData: { mimeType: uploadedFile.mimeType, fileUri: uploadedFile.uri } }
@@ -284,41 +230,22 @@ async function processWithFilesAPI(genAI: GoogleGenerativeAI, uploadedFile: Uplo
 
 // Gemini解析実行関数（フォールバック付き）
 async function executeGeminiAnalysis(genAI: GoogleGenerativeAI, parts: Part[], method: string): Promise<string> {
-    console.log(`🔄 Gemini解析準備 (${method}):`, {
-        partsCount: parts.length,
-        hasTextPart: parts.some(p => 'text' in p),
-        hasMediaPart: parts.some(p => 'inlineData' in p || 'fileData' in p)
-    });
-
-    // Flash モデル試行
+    console.log(`🔄 Gemini解析準備 (${method})`);
     try {
-        const model = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash",
-            generationConfig: { maxOutputTokens: 8192, temperature: 0.7 }
-        });
-
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         console.log(`🚀 Gemini AI Flash で解析開始... (${method})`);
         const result = await model.generateContent({ contents: [{ role: "user", parts }] });
         console.log('✅ Flash解析成功！');
         return result.response.text();
-
     } catch (flashError) {
         console.warn(`❌ Flashモデル失敗:`, flashError);
-
-        // Pro モデルフォールバック
         try {
-            const proModel = genAI.getGenerativeModel({
-                model: "gemini-1.5-pro",
-                generationConfig: { maxOutputTokens: 8192, temperature: 0.7 }
-            });
-
+            const proModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
             console.log(`🔄 Pro モデル試行...`);
-            await delay(2000); // レート制限対策
-
+            await delay(2000);
             const result = await proModel.generateContent({ contents: [{ role: "user", parts }] });
             console.log('✅ Pro解析成功！');
             return result.response.text();
-
         } catch (proError) {
             console.error('❌ Proモデルも失敗:', proError);
             throw proError;
@@ -327,21 +254,21 @@ async function executeGeminiAnalysis(genAI: GoogleGenerativeAI, parts: Part[], m
 }
 
 // クリーンアップ処理
-async function cleanup(tempFilePath: string, uploadedFile: UploadedFile | null, apiKey: string): Promise<void> {
+async function cleanup(tempFilePath: string, uploadedFile: UploadedFile | null, apiKey: string | null | undefined): Promise<void> {
     try {
-        // Files APIアップロードファイル削除
         if (uploadedFile?.name) {
+            if (!apiKey) {
+                console.warn('⚠️ クリーンアップスキップ: APIキーがありません');
+                return;
+            }
             const fileClient = new GoogleGenAI({ apiKey });
             await fileClient.files.delete({ name: uploadedFile.name });
             console.log('🗑️ Files API: アップロードファイル削除完了');
         }
-
-        // 一時ファイル削除
         if (tempFilePath && await fs.stat(tempFilePath).catch(() => false)) {
             await fs.unlink(tempFilePath);
             console.log(`🗑️ 一時ファイル削除: ${path.basename(tempFilePath)}`);
         }
-
         console.log('✅ クリーンアップ完了');
     } catch (cleanupError) {
         console.error('❌ クリーンアップエラー:', cleanupError);
