@@ -50,4 +50,4 @@ next-env.d.ts
 # OS
 Thumbs.db
 
-.json
+service-account-key.json
