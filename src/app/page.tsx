@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -42,23 +41,7 @@ export default function Home() {
     };
   }, [videoPreviewUrl]);
 
-  // ファイルをBase64に変換する関数
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          // data:video/mp4;base64, の部分を除去
-          const base64 = reader.result.split(',')[1];
-          resolve(base64);
-        } else {
-          reject(new Error('ファイルの読み込みに失敗しました'));
-        }
-      };
-      reader.onerror = error => reject(error);
-    });
-  };
+
 
   // 動画ファイル形式をGemini API対応のmimeTypeに変換する関数
   const getVideoMimeType = (file: File): string => {
@@ -142,105 +125,41 @@ export default function Home() {
     setShowResult(false);
 
     try {
-      // API キーの確認
-      const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('Gemini API キーが設定されていません。環境変数 NEXT_PUBLIC_GEMINI_API_KEY を確認してください。');
+      // FormDataを作成してファイルを送信
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      console.log('🚀 解析開始:', {
+        name: selectedFile.name,
+        size: `${(selectedFile.size / 1024 / 1024).toFixed(2)}MB`,
+        type: selectedFile.type
+      });
+
+      const response = await fetch('/api/analyze-file', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `サーバーエラー: ${response.status}`);
       }
 
-      // ファイルサイズチェック
-      const maxSize = 30 * 1024 * 1024; // 30MB
-      if (selectedFile.size > maxSize) {
-        throw new Error(`動画ファイルのサイズが30MBを超えています（現在: ${(selectedFile.size / 1024 / 1024).toFixed(2)}MB）。より小さいファイルを選択してください。`);
-      }
-
-      // Base64エンコード後のサイズを事前に計算
-      const estimatedBase64Size = Math.ceil(selectedFile.size * 4 / 3);
-      const maxBase64Size = 40 * 1024 * 1024; // 40MB（Base64エンコード後の制限）
-
-      if (estimatedBase64Size > maxBase64Size) {
-        throw new Error(`Base64エンコード後のサイズが大きすぎます（推定: ${(estimatedBase64Size / 1024 / 1024).toFixed(2)}MB）。より小さい動画ファイルを選択してください。`);
-      }
-
-      // ファイルをBase64に変換
-      console.log('動画ファイルをBase64に変換中... (サイズ:', Math.round(selectedFile.size / 1024 / 1024), 'MB)');
-      const videoBase64 = await fileToBase64(selectedFile);
-
-      console.log('Base64エンコード完了 (エンコード後サイズ:', Math.round(videoBase64.length / 1024 / 1024), 'MB)');
-
-      // Gemini AI クライアントの初期化
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
-      // プロンプトの定義
-      const prompt = `以下のゴルフスイング動画を見て、プレイヤーが今後より良いゴルフをするための、建設的で具体的なアドバイスを日本語で出力してください。
-
----
-【スイング分析】
-このスイングの特徴と改善すべき点を、身体の使い方・クラブの動き・タイミングなどの観点から具体的に述べてください。ボールの方向性や飛距離に加えて、安定性・再現性・テンポなども含めてください。
-
-【改善アドバイス】
-プレイヤーが意識すべき重要な3〜5点を挙げ、それぞれ「なぜそれが重要なのか」「どうすれば改善できるのか」をシンプルに説明してください。抽象的な表現は避け、本人が実践できるような行動ベースのアドバイスを重視してください。
-
-【補足】
-すべての表現は前向きかつ尊重のあるトーンで書いてください。相手はゴルフをもっと上達させたいと願うプレイヤーであり、改善へのモチベーションを高められるような温かく誠実なフィードバックを心がけてください。`;
-
-      // 動画データの準備
-      const videoPart = {
-        inlineData: {
-          data: videoBase64,
-          mimeType: getVideoMimeType(selectedFile),
-        },
-      };
-
-      // Gemini APIに直接送信
-      console.log('Gemini APIに解析リクエストを送信中...');
-      const startTime = Date.now();
-      const result = await model.generateContent([prompt, videoPart]);
-      const response = await result.response;
-      const analysisText = response.text();
-      const endTime = Date.now();
-
-      console.log(`解析完了 (処理時間: ${(endTime - startTime) / 1000}s)`);
-
-      // 結果を表示
-      const processingTime = `${(endTime - startTime) / 1000}s`;
-      const fileSize = `${Math.round(selectedFile.size / 1024 / 1024)}MB`;
-
-      setAnalysisResult(analysisText + `\n\n📊 解析されたファイルサイズ: ${fileSize}\n⏱️ 処理時間: ${processingTime}`);
-
-      // 結果設定後、少し遅延してアニメーション開始
-      setTimeout(() => {
+      if (data.success) {
+        setAnalysisResult(data.analysis);
         setShowResult(true);
-      }, 100);
+        console.log('✅ 解析完了:', data.fileInfo);
+      } else {
+        throw new Error(data.error || '解析に失敗しました');
+      }
 
     } catch (error) {
       console.error('解析エラー:', error);
 
-      let errorMessage = '解析中にエラーが発生しました。';
-
-      if (error instanceof Error) {
-        if (error.message.includes('API キー') || error.message.includes('NEXT_PUBLIC_GEMINI_API_KEY')) {
-          errorMessage = 'Gemini API キーが設定されていません。環境変数 NEXT_PUBLIC_GEMINI_API_KEY を確認してください。';
-        } else if (error.message.includes('30MB') || error.message.includes('ファイルサイズ') || error.message.includes('Base64')) {
-          errorMessage = error.message;
-        } else if (error.message.includes('CORS')) {
-          errorMessage = 'CORS エラーが発生しました。ブラウザのセキュリティ設定またはネットワーク環境を確認してください。';
-        } else if (error.message.includes('network') || error.message.includes('fetch')) {
-          errorMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
-        } else if (error.message.includes('timeout')) {
-          errorMessage = 'タイムアウトエラーが発生しました。より小さいファイルで再試行してください。';
-        } else if (error.message.includes('rate limit') || error.message.includes('quota')) {
-          errorMessage = 'API使用量制限に達しました。しばらく待ってから再試行してください。';
-        } else {
-          errorMessage = `エラー: ${error.message}`;
-        }
-      }
-
-      setAnalysisResult(`❌ ${errorMessage}\n\n詳細については開発者コンソールをご確認ください。`);
-      setTimeout(() => {
-        setShowResult(true);
-      }, 100);
+      const errorMessage = error instanceof Error ? error.message : '解析中にエラーが発生しました。';
+      setAnalysisResult(`❌ ${errorMessage}`);
+      setShowResult(true);
     } finally {
       setIsAnalyzing(false);
     }
@@ -319,7 +238,7 @@ export default function Home() {
                     対応形式：MP4, MOV, AVI, MKV, WebM, WMV, FLV, 3GP, M4V, OGV
                   </p>
                   <p className="text-xs text-gray-400 mt-1">
-                    最大30MB推奨・iPhone MOVファイル対応
+                    最大2GB対応・iPhone MOVファイル対応
                   </p>
                 </label>
               ) : (
@@ -364,16 +283,11 @@ export default function Home() {
                     ファイル形式: {selectedFile.type || '不明'} → {getVideoMimeType(selectedFile)}
                   </p>
                   <p className="text-blue-600 text-xs">
-                    推定エンコード後サイズ: {Math.ceil(selectedFile.size * 4 / 3 / 1024 / 1024)} MB
+                    処理方法: {selectedFile.size <= 20 * 1024 * 1024 ? 'Base64形式（20MB以下）' : 'Files API（20MB超）'}
                   </p>
-                  {selectedFile.size > 30 * 1024 * 1024 && (
+                  {selectedFile.size > 2 * 1024 * 1024 * 1024 && (
                     <p className="text-red-600 text-sm mt-1">
-                      ⚠️ ファイルサイズが30MBを超えています
-                    </p>
-                  )}
-                  {Math.ceil(selectedFile.size * 4 / 3) > 40 * 1024 * 1024 && (
-                    <p className="text-red-600 text-sm mt-1">
-                      ⚠️ エンコード後サイズが40MBを超えています
+                      ⚠️ ファイルサイズが2GBを超えています
                     </p>
                   )}
                 </div>
@@ -389,9 +303,9 @@ export default function Home() {
             <button
               id="analyze-button"
               onClick={handleAnalyze}
-              disabled={!selectedFile || isAnalyzing || (selectedFile && (selectedFile.size > 30 * 1024 * 1024 || Math.ceil(selectedFile.size * 4 / 3) > 40 * 1024 * 1024))}
+              disabled={!selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 2 * 1024 * 1024 * 1024)}
               className={`w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all ${
-                !selectedFile || isAnalyzing || (selectedFile && (selectedFile.size > 30 * 1024 * 1024 || Math.ceil(selectedFile.size * 4 / 3) > 40 * 1024 * 1024))
+                !selectedFile || isAnalyzing || (selectedFile && selectedFile.size > 2 * 1024 * 1024 * 1024)
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
               }`}
