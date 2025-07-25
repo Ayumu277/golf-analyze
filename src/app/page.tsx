@@ -132,17 +132,16 @@ export default function Home() {
       });
 
       const fileSize = selectedFile.size;
-      const fileSizeMB = fileSize / 1024 / 1024;
-      
+
       let requestBody;
-      
+
       if (fileSize <= 20 * 1024 * 1024) {
         // 20MB以下 → クライアント側でBase64変換
         console.log('📊 20MB以下 → クライアント側でBase64変換');
-        
+
         const arrayBuffer = await selectedFile.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-        
+        const base64 = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(arrayBuffer))));
+
         requestBody = JSON.stringify({
           method: 'base64',
           fileName: selectedFile.name,
@@ -150,9 +149,9 @@ export default function Home() {
           fileSize: fileSize,
           base64Data: base64
         });
-        
+
         console.log(`✅ Base64変換完了: ${base64.length} chars`);
-        
+
       } else {
         // 20MB以上 → FormData（Files API用）
         console.log('🎬 20MB以上 → FormData送信');

@@ -7,8 +7,20 @@ import os from "os";
 import crypto from "crypto";
 
 // 型定義
+interface ExtendedFile {
+    name: string;
+    size: number;
+    type: string;
+    base64Data?: string;
+    lastModified?: number;
+    arrayBuffer?(): Promise<ArrayBuffer>;
+    slice?(start?: number, end?: number, contentType?: string): Blob;
+    stream?(): ReadableStream;
+    text?(): Promise<string>;
+}
+
 interface GolfAnalysisRequest {
-    file: File;
+    file: File | ExtendedFile;
     fileSize: number;
     fileSizeMB: number;
 }
@@ -107,10 +119,11 @@ export async function POST(request: NextRequest) {
 
         if (fileSize <= GEMINI_BASE64_LIMIT) {
             // 20MB以下 → Base64形式で処理
-            if ((file as any).base64Data) {
+            const extendedFile = file as ExtendedFile;
+            if (extendedFile.base64Data) {
                 // クライアント側でBase64変換済み
                 console.log('📊 20MB以下 → クライアント側Base64データ使用');
-                analysisResult = await processWithPreEncodedBase64(genAI, (file as any).base64Data, file.type);
+                analysisResult = await processWithPreEncodedBase64(genAI, extendedFile.base64Data, file.type);
             } else {
                 // サーバー側でBase64変換
                 console.log('🔄 一時ファイル保存開始');
@@ -123,7 +136,7 @@ export async function POST(request: NextRequest) {
             console.log('🔄 一時ファイル保存開始');
             tempFilePath = await saveTemporaryFile(file, tempDir);
             console.log(`💾 一時ファイル保存完了: ${tempFilePath}`);
-            
+
             const uploadedFile = await uploadFileWithFilesAPI(fileClient, tempFilePath, file);
             uploadedFileForDeletion = uploadedFile;
             analysisResult = await processWithFilesAPI(genAI, uploadedFile);
@@ -172,32 +185,32 @@ export async function POST(request: NextRequest) {
 // ファイル受信と検証
 async function validateAndExtractFile(request: NextRequest): Promise<GolfAnalysisRequest> {
     const contentType = request.headers.get('content-type') || '';
-    
+
     if (contentType.includes('application/json')) {
         // JSON形式（クライアント側でBase64変換済み）
         const jsonData = await request.json();
-        
+
         if (jsonData.method !== 'base64') {
             throw new Error('不正なリクエスト形式です。');
         }
-        
+
         const fileSize = jsonData.fileSize;
         const fileSizeMB = fileSize / 1024 / 1024;
-        
+
         if (fileSize > MAX_FILE_SIZE) {
             throw new Error(`ファイルサイズが制限(2GB)を超えています: ${fileSizeMB.toFixed(1)}MB`);
         }
-        
+
         // File-like オブジェクトを作成
-        const file = {
+        const file: ExtendedFile = {
             name: jsonData.fileName,
             size: jsonData.fileSize,
             type: jsonData.fileType,
             base64Data: jsonData.base64Data
-        } as any;
-        
+        } as ExtendedFile;
+
         return { file, fileSize, fileSizeMB };
-        
+
     } else {
         // FormData形式（従来通り）
         const formData = await request.formData();
@@ -219,11 +232,18 @@ async function validateAndExtractFile(request: NextRequest): Promise<GolfAnalysi
 }
 
 // 一時ファイル保存
-async function saveTemporaryFile(file: File, tempDir: string): Promise<string> {
+async function saveTemporaryFile(file: File | ExtendedFile, tempDir: string): Promise<string> {
     const fileId = crypto.randomUUID();
     const tempFilePath = path.join(tempDir, `${fileId}_${file.name}`);
-    const bytes = await file.arrayBuffer();
-    await fs.writeFile(tempFilePath, Buffer.from(bytes));
+
+    // 実際のFileオブジェクトの場合のみarrayBuffer()を呼び出す
+    if (file instanceof File) {
+        const bytes = await file.arrayBuffer();
+        await fs.writeFile(tempFilePath, Buffer.from(bytes));
+    } else {
+        throw new Error('ExtendedFileは一時ファイル保存に対応していません');
+    }
+
     return tempFilePath;
 }
 
@@ -233,7 +253,7 @@ async function processWithPreEncodedBase64(genAI: GoogleGenerativeAI, base64Data
 
     try {
         console.log(`📏 受信Base64データサイズ: ${base64Data.length} chars`);
-        
+
         const mimeType = fileType || 'video/quicktime';
         console.log(`✅ Base64準備完了: ${mimeType}`);
 
@@ -278,7 +298,7 @@ async function processWithBase64(genAI: GoogleGenerativeAI, tempFilePath: string
 }
 
 // Files API使用でのファイルアップロード
-async function uploadFileWithFilesAPI(fileClient: GoogleGenAI, tempFilePath: string, file: File): Promise<UploadedFile> {
+async function uploadFileWithFilesAPI(fileClient: GoogleGenAI, tempFilePath: string, file: File | ExtendedFile): Promise<UploadedFile> {
     console.log('🎬 20MB超 → Files API使用');
 
     const uploadedFile = await fileClient.files.upload({
