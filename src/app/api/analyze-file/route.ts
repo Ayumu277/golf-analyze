@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
     if (!apiKey) {
         return NextResponse.json(
-            { error: 'NEXT_PUBLIC_GEMINI_API_KEYが設定されていません。' }, 
+            { error: 'NEXT_PUBLIC_GEMINI_API_KEYが設定されていません。' },
             { status: 500 }
         );
     }
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
         }
 
         const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
-        
+
         console.log('🎉 解析完了！');
         console.log(`⏱️ 総処理時間: ${processingTime}秒`);
 
@@ -121,12 +121,12 @@ export async function POST(request: NextRequest) {
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         console.error('❌ ゴルフスイング解析エラー:', errorMessage);
-        
+
         const errorResponse: GolfAnalysisResponse = {
             success: false,
             error: `解析に失敗しました: ${errorMessage}`
         };
-        
+
         return NextResponse.json(errorResponse, { status: 500 });
 
     } finally {
@@ -165,11 +165,11 @@ async function saveTemporaryFile(file: File, tempDir: string): Promise<string> {
 // Base64形式での処理
 async function processWithBase64(genAI: GoogleGenerativeAI, tempFilePath: string, fileType?: string): Promise<string> {
     console.log('📊 20MB以下 → Base64形式で処理');
-    
+
     const processedBuffer = await fs.readFile(tempFilePath);
     const base64Data = processedBuffer.toString('base64');
     const mimeType = fileType || 'video/quicktime';
-    
+
     console.log(`✅ Base64準備完了: ${mimeType}`);
 
     return await executeGeminiAnalysis(genAI, [
@@ -202,21 +202,21 @@ async function uploadFileWithFilesAPI(fileClient: GoogleGenAI, tempFilePath: str
 // ファイル処理完了待機
 async function waitForFileProcessing(fileClient: GoogleGenAI, uploadedFile: UploadedFile): Promise<void> {
     console.log('⏳ ファイルの処理待機中...');
-    
+
     let attempts = 0;
     let currentFile = uploadedFile;
 
     while (currentFile.state === 'PROCESSING' && attempts < PROCESSING_MAX_ATTEMPTS) {
         await delay(PROCESSING_DELAY);
-        
+
         if (!currentFile.name) {
             throw new Error('処理中にファイル名が失われました。');
         }
-        
+
         currentFile = await fileClient.files.get({ name: currentFile.name });
         console.log(`   ...現在の状態: ${currentFile.state}`);
         attempts++;
-        
+
         // uploadedFileオブジェクトを更新
         Object.assign(uploadedFile, currentFile);
     }
@@ -225,7 +225,7 @@ async function waitForFileProcessing(fileClient: GoogleGenAI, uploadedFile: Uplo
         console.error('File processing failed with error:', currentFile.error);
         throw new Error(`ファイルの処理が完了しませんでした。状態: ${currentFile.state}`);
     }
-    
+
     console.log('✅ ファイルがACTIVEになりました！');
 }
 
@@ -264,10 +264,10 @@ async function executeGeminiAnalysis(genAI: GoogleGenerativeAI, parts: Part[], m
                 model: "gemini-1.5-pro",
                 generationConfig: { maxOutputTokens: 8192, temperature: 0.7 }
             });
-            
+
             console.log(`🔄 Pro モデル試行...`);
             await delay(2000); // レート制限対策
-            
+
             const result = await proModel.generateContent({ contents: [{ role: "user", parts }] });
             console.log('✅ Pro解析成功！');
             return result.response.text();
