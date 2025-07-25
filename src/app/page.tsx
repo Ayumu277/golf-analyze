@@ -135,22 +135,35 @@ export default function Home() {
 
       let requestBody;
 
-      if (fileSize <= 20 * 1024 * 1024) {
-        // 20MB以下 → クライアント側でBase64変換
-        console.log('📊 20MB以下 → クライアント側でBase64変換');
+              if (fileSize <= 20 * 1024 * 1024) {
+          // 20MB以下 → クライアント側でBase64変換
+          console.log('📊 20MB以下 → クライアント側でBase64変換');
 
-        const arrayBuffer = await selectedFile.arrayBuffer();
-        const base64 = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(arrayBuffer))));
+          // FileReaderを使用してBase64変換（メモリ効率が良い）
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (typeof reader.result === 'string') {
+                // data:video/quicktime;base64,... から base64部分だけ抽出
+                const base64Data = reader.result.split(',')[1];
+                resolve(base64Data);
+              } else {
+                reject(new Error('FileReader結果が文字列ではありません'));
+              }
+            };
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(selectedFile);
+          });
 
-        requestBody = JSON.stringify({
-          method: 'base64',
-          fileName: selectedFile.name,
-          fileType: selectedFile.type,
-          fileSize: fileSize,
-          base64Data: base64
-        });
+          requestBody = JSON.stringify({
+            method: 'base64',
+            fileName: selectedFile.name,
+            fileType: selectedFile.type,
+            fileSize: fileSize,
+            base64Data: base64
+          });
 
-        console.log(`✅ Base64変換完了: ${base64.length} chars`);
+          console.log(`✅ Base64変換完了: ${base64.length} chars`);
 
       } else {
         // 20MB以上 → FormData（Files API用）
