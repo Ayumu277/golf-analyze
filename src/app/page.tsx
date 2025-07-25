@@ -131,30 +131,101 @@ export default function Home() {
         type: selectedFile.type
       });
 
-            // 全てFormDataで送信（サーバー側で20MB判定）
-      console.log('📤 FormDataで送信');
+      const fileSize = selectedFile.size;
+      const GEMINI_BASE64_LIMIT = 20 * 1024 * 1024; // 20MB
 
-      const formData = new FormData();
-      formData.append('file', selectedFile);
+      let analysisResult;
 
-      const response = await fetch('/api/analyze-file', {
-        method: 'POST',
-        body: formData,
-      });
+      if (fileSize <= GEMINI_BASE64_LIMIT) {
+        // 20MB以下 → クライアント側で直接Gemini API呼び出し
+        console.log('📊 20MB以下 → クライアント側でGemini API直接呼び出し');
+        
+        // Google Generative AI SDKを使用
+        const { GoogleGenerativeAI } = await import('@google/generative-ai');
+        const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+        
+        if (!apiKey) {
+          throw new Error('Gemini APIキーが設定されていません');
+        }
 
-      const data = await response.json();
+        const genAI = new GoogleGenerativeAI(apiKey);
+        
+        // FileReaderでBase64変換
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              const base64Data = reader.result.split(',')[1];
+              resolve(base64Data);
+            } else {
+              reject(new Error('FileReader結果が文字列ではありません'));
+            }
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(selectedFile);
+        });
 
-      if (!response.ok) {
-        throw new Error(data.error || `サーバーエラー: ${response.status}`);
-      }
+        console.log(`✅ Base64変換完了: ${base64.length} chars`);
 
-      if (data.success) {
-        setAnalysisResult(data.analysis);
-        setShowResult(true);
-        console.log('✅ 解析完了:', data.fileInfo);
+        const model = genAI.getGenerativeModel({
+          model: "gemini-1.5-flash",
+          generationConfig: { maxOutputTokens: 8192, temperature: 0.7 }
+        });
+
+        const prompt = `この動画はゴルフスイングの動画です。以下の観点から詳細に分析し、日本語で回答してください：
+
+1. **スイングフォーム分析**: アドレス、バックスイング、ダウンスイング、インパクト、フォロースルー
+2. **テンポとリズム**: スイングのテンポ、切り返しのタイミング
+3. **体重移動**: 左右の体重移動の流れ
+4. **軸の安定性**: 頭の位置、体の軸のブレ
+5. **クラブパス**: スイング軌道の確認
+6. **フィニッシュ**: バランスの良いフィニッシュポジション
+7. **改善提案**: 具体的な改善点とアドバイス
+
+**重要**: 動画から実際に観察できる内容のみを分析し、推測は避けてください。観察できない部分は「確認できません」と記載してください。`;
+
+        console.log('🔄 Gemini API呼び出し開始');
+        const result = await model.generateContent({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: selectedFile.type || 'video/quicktime', data: base64 } }
+            ]
+          }]
+        });
+
+        analysisResult = result.response.text();
+        console.log('✅ Gemini解析成功！');
+
       } else {
-        throw new Error(data.error || '解析に失敗しました');
+        // 20MB以上 → サーバー経由でFiles API使用
+        console.log('🎬 20MB以上 → サーバー経由でFiles API使用');
+        
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        const response = await fetch('/api/analyze-file', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || `サーバーエラー: ${response.status}`);
+        }
+
+        if (data.success) {
+          analysisResult = data.analysis;
+        } else {
+          throw new Error(data.error || '解析に失敗しました');
+        }
       }
+
+      // 結果表示
+      setAnalysisResult(analysisResult);
+      setShowResult(true);
 
     } catch (error) {
       console.error('解析エラー:', error);
@@ -166,6 +237,8 @@ export default function Home() {
       setIsAnalyzing(false);
     }
   };
+
+
 
   // 結果表示のアニメーション効果
   useEffect(() => {
