@@ -240,6 +240,15 @@ export default function Home() {
                   <p className="text-xs text-gray-400 mt-1">
                     最大2GB対応・iPhone MOVファイル対応
                   </p>
+                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                    <p className="text-blue-700 font-medium">📝 推奨事項</p>
+                    <p className="text-blue-600 mt-1">
+                      • <strong>20MB未満の動画が好ましい</strong>（高速処理）
+                    </p>
+                    <p className="text-blue-600">
+                      • 20MB以上の動画は<strong>MP4形式に変換</strong>してください
+                    </p>
+                  </div>
                 </label>
               ) : (
                 // 動画がある場合のプレビューUI
@@ -285,6 +294,12 @@ export default function Home() {
                   <p className="text-blue-600 text-xs">
                     処理方法: {selectedFile.size <= 20 * 1024 * 1024 ? 'Base64形式（20MB以下）' : 'Files API（20MB超）'}
                   </p>
+                  {selectedFile.size > 20 * 1024 * 1024 && selectedFile.size <= 2 * 1024 * 1024 * 1024 && (
+                    <div className="text-orange-600 text-xs mt-1 p-2 bg-orange-50 rounded border border-orange-200">
+                      <p className="font-medium">💡 最適化のヒント</p>
+                      <p>20MB以上のファイルです。MP4形式に変換すると処理が安定します。</p>
+                    </div>
+                  )}
                   {selectedFile.size > 2 * 1024 * 1024 * 1024 && (
                     <p className="text-red-600 text-sm mt-1">
                       ⚠️ ファイルサイズが2GBを超えています
@@ -319,9 +334,12 @@ export default function Home() {
                 '🚀 スイング解析を開始'
               )}
             </button>
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              ※ ファイルサイズが大きい場合、解析に数分かかることがあります
-            </p>
+            <div className="text-xs text-gray-500 mt-2 text-center space-y-1">
+              <p>※ ファイルサイズが大きい場合、解析に数分かかることがあります</p>
+              <p className="text-blue-600">
+                💡 20MB未満の動画：約30秒〜1分 / 20MB以上：約2〜5分
+              </p>
+            </div>
           </div>
 
           {/* 結果表示セクション */}
