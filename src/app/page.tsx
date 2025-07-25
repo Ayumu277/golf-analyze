@@ -139,17 +139,17 @@ export default function Home() {
       if (fileSize <= GEMINI_BASE64_LIMIT) {
         // 20MB以下 → クライアント側で直接Gemini API呼び出し
         console.log('📊 20MB以下 → クライアント側でGemini API直接呼び出し');
-        
+
         // Google Generative AI SDKを使用
         const { GoogleGenerativeAI } = await import('@google/generative-ai');
         const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-        
+
         if (!apiKey) {
           throw new Error('Gemini APIキーが設定されていません');
         }
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        
+
         // FileReaderでBase64変換
         const base64 = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -201,7 +201,7 @@ export default function Home() {
       } else {
         // 20MB以上 → サーバー経由でFiles API使用
         console.log('🎬 20MB以上 → サーバー経由でFiles API使用');
-        
+
         const formData = new FormData();
         formData.append('file', selectedFile);
 
