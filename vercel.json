@@ -1,5 +1,11 @@
 {
   "crons": [],
+  "functions": {
+    "src/app/api/analyze-file/route.ts": {
+      "maxDuration": 300,
+      "memory": 1024
+    }
+  },
   "rewrites": [
     {
       "source": "/sw.js",
