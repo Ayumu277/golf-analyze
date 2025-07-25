@@ -125,19 +125,48 @@ export default function Home() {
     setShowResult(false);
 
     try {
-      // FormDataを作成してファイルを送信
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
       console.log('🚀 解析開始:', {
         name: selectedFile.name,
         size: `${(selectedFile.size / 1024 / 1024).toFixed(2)}MB`,
         type: selectedFile.type
       });
 
+      const fileSize = selectedFile.size;
+      const fileSizeMB = fileSize / 1024 / 1024;
+      
+      let requestBody;
+      
+      if (fileSize <= 20 * 1024 * 1024) {
+        // 20MB以下 → クライアント側でBase64変換
+        console.log('📊 20MB以下 → クライアント側でBase64変換');
+        
+        const arrayBuffer = await selectedFile.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        
+        requestBody = JSON.stringify({
+          method: 'base64',
+          fileName: selectedFile.name,
+          fileType: selectedFile.type,
+          fileSize: fileSize,
+          base64Data: base64
+        });
+        
+        console.log(`✅ Base64変換完了: ${base64.length} chars`);
+        
+      } else {
+        // 20MB以上 → FormData（Files API用）
+        console.log('🎬 20MB以上 → FormData送信');
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        requestBody = formData;
+      }
+
       const response = await fetch('/api/analyze-file', {
         method: 'POST',
-        body: formData,
+        headers: fileSize <= 20 * 1024 * 1024 ? {
+          'Content-Type': 'application/json'
+        } : undefined,
+        body: requestBody,
       });
 
       const data = await response.json();

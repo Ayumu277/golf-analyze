@@ -55,6 +55,11 @@ const GOLF_ANALYSIS_PROMPT = `この動画はゴルフスイングの動画で�
 
 **重要**: 動画から実際に観察できる内容のみを分析し、推測は避けてください。観察できない部分は「確認できません」と記載してください。`;
 
+// Next.js API Route Configuration
+export const runtime = 'nodejs';
+export const maxDuration = 300; // 5 minutes
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
     const tempDir = os.tmpdir();
     let tempFilePath = '';
@@ -68,7 +73,7 @@ export async function POST(request: NextRequest) {
         length: apiKey?.length || 0,
         prefix: apiKey?.substring(0, 10) || 'なし'
     });
-    
+
     if (!apiKey) {
         console.error('❌ API Key未設定');
         return NextResponse.json(
@@ -94,11 +99,6 @@ export async function POST(request: NextRequest) {
             isBase64Route: fileSize <= GEMINI_BASE64_LIMIT
         });
 
-        // 一時ファイル保存
-        console.log('🔄 一時ファイル保存開始');
-        tempFilePath = await saveTemporaryFile(file, tempDir);
-        console.log(`💾 一時ファイル保存完了: ${tempFilePath}`);
-
         // Gemini API初期化
         const genAI = new GoogleGenerativeAI(apiKey);
         const fileClient = new GoogleGenAI({ apiKey });
@@ -107,9 +107,23 @@ export async function POST(request: NextRequest) {
 
         if (fileSize <= GEMINI_BASE64_LIMIT) {
             // 20MB以下 → Base64形式で処理
-            analysisResult = await processWithBase64(genAI, tempFilePath, file.type);
+            if ((file as any).base64Data) {
+                // クライアント側でBase64変換済み
+                console.log('📊 20MB以下 → クライアント側Base64データ使用');
+                analysisResult = await processWithPreEncodedBase64(genAI, (file as any).base64Data, file.type);
+            } else {
+                // サーバー側でBase64変換
+                console.log('🔄 一時ファイル保存開始');
+                tempFilePath = await saveTemporaryFile(file, tempDir);
+                console.log(`💾 一時ファイル保存完了: ${tempFilePath}`);
+                analysisResult = await processWithBase64(genAI, tempFilePath, file.type);
+            }
         } else {
             // 20MB超 → Files API使用
+            console.log('🔄 一時ファイル保存開始');
+            tempFilePath = await saveTemporaryFile(file, tempDir);
+            console.log(`💾 一時ファイル保存完了: ${tempFilePath}`);
+            
             const uploadedFile = await uploadFileWithFilesAPI(fileClient, tempFilePath, file);
             uploadedFileForDeletion = uploadedFile;
             analysisResult = await processWithFilesAPI(genAI, uploadedFile);
@@ -136,7 +150,7 @@ export async function POST(request: NextRequest) {
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         const errorStack = error instanceof Error ? error.stack : 'No stack trace';
-        
+
         console.error('❌ ゴルフスイング解析エラー:', {
             message: errorMessage,
             stack: errorStack,
@@ -157,21 +171,51 @@ export async function POST(request: NextRequest) {
 
 // ファイル受信と検証
 async function validateAndExtractFile(request: NextRequest): Promise<GolfAnalysisRequest> {
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
+    const contentType = request.headers.get('content-type') || '';
+    
+    if (contentType.includes('application/json')) {
+        // JSON形式（クライアント側でBase64変換済み）
+        const jsonData = await request.json();
+        
+        if (jsonData.method !== 'base64') {
+            throw new Error('不正なリクエスト形式です。');
+        }
+        
+        const fileSize = jsonData.fileSize;
+        const fileSizeMB = fileSize / 1024 / 1024;
+        
+        if (fileSize > MAX_FILE_SIZE) {
+            throw new Error(`ファイルサイズが制限(2GB)を超えています: ${fileSizeMB.toFixed(1)}MB`);
+        }
+        
+        // File-like オブジェクトを作成
+        const file = {
+            name: jsonData.fileName,
+            size: jsonData.fileSize,
+            type: jsonData.fileType,
+            base64Data: jsonData.base64Data
+        } as any;
+        
+        return { file, fileSize, fileSizeMB };
+        
+    } else {
+        // FormData形式（従来通り）
+        const formData = await request.formData();
+        const file = formData.get('file') as File;
 
-    if (!file) {
-        throw new Error('ファイルが選択されていません。');
+        if (!file) {
+            throw new Error('ファイルが選択されていません。');
+        }
+
+        const fileSize = file.size;
+        const fileSizeMB = fileSize / 1024 / 1024;
+
+        if (fileSize > MAX_FILE_SIZE) {
+            throw new Error(`ファイルサイズが制限(2GB)を超えています: ${fileSizeMB.toFixed(1)}MB`);
+        }
+
+        return { file, fileSize, fileSizeMB };
     }
-
-    const fileSize = file.size;
-    const fileSizeMB = fileSize / 1024 / 1024;
-
-    if (fileSize > MAX_FILE_SIZE) {
-        throw new Error(`ファイルサイズが制限(2GB)を超えています: ${fileSizeMB.toFixed(1)}MB`);
-    }
-
-    return { file, fileSize, fileSizeMB };
 }
 
 // 一時ファイル保存
@@ -183,18 +227,12 @@ async function saveTemporaryFile(file: File, tempDir: string): Promise<string> {
     return tempFilePath;
 }
 
-// Base64形式での処理
-async function processWithBase64(genAI: GoogleGenerativeAI, tempFilePath: string, fileType?: string): Promise<string> {
-    console.log('📊 20MB以下 → Base64形式で処理');
+// 事前エンコードされたBase64データでの処理
+async function processWithPreEncodedBase64(genAI: GoogleGenerativeAI, base64Data: string, fileType?: string): Promise<string> {
+    console.log('📊 クライアント側Base64データで処理');
 
     try {
-        console.log('🔄 ファイル読み込み開始');
-        const processedBuffer = await fs.readFile(tempFilePath);
-        console.log(`📏 ファイルバッファサイズ: ${processedBuffer.length} bytes`);
-        
-        console.log('🔄 Base64変換開始');
-        const base64Data = processedBuffer.toString('base64');
-        console.log(`📏 Base64データサイズ: ${base64Data.length} chars`);
+        console.log(`📏 受信Base64データサイズ: ${base64Data.length} chars`);
         
         const mimeType = fileType || 'video/quicktime';
         console.log(`✅ Base64準備完了: ${mimeType}`);
@@ -203,8 +241,36 @@ async function processWithBase64(genAI: GoogleGenerativeAI, tempFilePath: string
         return await executeGeminiAnalysis(genAI, [
             { text: GOLF_ANALYSIS_PROMPT },
             { inlineData: { mimeType, data: base64Data } }
-        ], 'Base64');
-        
+        ], 'Pre-encoded Base64');
+
+    } catch (error) {
+        console.error('❌ Base64処理エラー:', error);
+        throw error;
+    }
+}
+
+// Base64形式での処理（サーバー側変換）
+async function processWithBase64(genAI: GoogleGenerativeAI, tempFilePath: string, fileType?: string): Promise<string> {
+    console.log('📊 20MB以下 → Base64形式で処理');
+
+    try {
+        console.log('🔄 ファイル読み込み開始');
+        const processedBuffer = await fs.readFile(tempFilePath);
+        console.log(`📏 ファイルバッファサイズ: ${processedBuffer.length} bytes`);
+
+        console.log('🔄 Base64変換開始');
+        const base64Data = processedBuffer.toString('base64');
+        console.log(`📏 Base64データサイズ: ${base64Data.length} chars`);
+
+        const mimeType = fileType || 'video/quicktime';
+        console.log(`✅ Base64準備完了: ${mimeType}`);
+
+        console.log('🔄 Gemini API呼び出し開始');
+        return await executeGeminiAnalysis(genAI, [
+            { text: GOLF_ANALYSIS_PROMPT },
+            { inlineData: { mimeType, data: base64Data } }
+        ], 'Server-side Base64');
+
     } catch (error) {
         console.error('❌ Base64処理エラー:', error);
         throw error;
