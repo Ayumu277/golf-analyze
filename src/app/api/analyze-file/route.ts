@@ -63,7 +63,14 @@ export async function POST(request: NextRequest) {
 
     // API Key validation
     const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    console.log('🔑 API Key確認:', {
+        exists: !!apiKey,
+        length: apiKey?.length || 0,
+        prefix: apiKey?.substring(0, 10) || 'なし'
+    });
+    
     if (!apiKey) {
+        console.error('❌ API Key未設定');
         return NextResponse.json(
             { error: 'NEXT_PUBLIC_GEMINI_API_KEYが設定されていません。' },
             { status: 500 }
@@ -75,12 +82,20 @@ export async function POST(request: NextRequest) {
         console.log(`⏰ 開始時刻: ${new Date().toLocaleString('ja-JP')}`);
 
         // ファイル受信と検証
+        console.log('🔄 ファイル受信開始');
         const requestData = await validateAndExtractFile(request);
         const { file, fileSize, fileSizeMB } = requestData;
 
         console.log(`📁 受信ファイル: ${file.name} (${fileSizeMB.toFixed(1)}MB)`);
+        console.log(`📊 ファイル詳細:`, {
+            size: fileSize,
+            type: file.type,
+            lastModified: file.lastModified,
+            isBase64Route: fileSize <= GEMINI_BASE64_LIMIT
+        });
 
         // 一時ファイル保存
+        console.log('🔄 一時ファイル保存開始');
         tempFilePath = await saveTemporaryFile(file, tempDir);
         console.log(`💾 一時ファイル保存完了: ${tempFilePath}`);
 
@@ -120,7 +135,13 @@ export async function POST(request: NextRequest) {
 
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        console.error('❌ ゴルフスイング解析エラー:', errorMessage);
+        const errorStack = error instanceof Error ? error.stack : 'No stack trace';
+        
+        console.error('❌ ゴルフスイング解析エラー:', {
+            message: errorMessage,
+            stack: errorStack,
+            error: error
+        });
 
         const errorResponse: GolfAnalysisResponse = {
             success: false,
@@ -166,16 +187,28 @@ async function saveTemporaryFile(file: File, tempDir: string): Promise<string> {
 async function processWithBase64(genAI: GoogleGenerativeAI, tempFilePath: string, fileType?: string): Promise<string> {
     console.log('📊 20MB以下 → Base64形式で処理');
 
-    const processedBuffer = await fs.readFile(tempFilePath);
-    const base64Data = processedBuffer.toString('base64');
-    const mimeType = fileType || 'video/quicktime';
+    try {
+        console.log('🔄 ファイル読み込み開始');
+        const processedBuffer = await fs.readFile(tempFilePath);
+        console.log(`📏 ファイルバッファサイズ: ${processedBuffer.length} bytes`);
+        
+        console.log('🔄 Base64変換開始');
+        const base64Data = processedBuffer.toString('base64');
+        console.log(`📏 Base64データサイズ: ${base64Data.length} chars`);
+        
+        const mimeType = fileType || 'video/quicktime';
+        console.log(`✅ Base64準備完了: ${mimeType}`);
 
-    console.log(`✅ Base64準備完了: ${mimeType}`);
-
-    return await executeGeminiAnalysis(genAI, [
-        { text: GOLF_ANALYSIS_PROMPT },
-        { inlineData: { mimeType, data: base64Data } }
-    ], 'Base64');
+        console.log('🔄 Gemini API呼び出し開始');
+        return await executeGeminiAnalysis(genAI, [
+            { text: GOLF_ANALYSIS_PROMPT },
+            { inlineData: { mimeType, data: base64Data } }
+        ], 'Base64');
+        
+    } catch (error) {
+        console.error('❌ Base64処理エラー:', error);
+        throw error;
+    }
 }
 
 // Files API使用でのファイルアップロード
@@ -243,6 +276,12 @@ async function processWithFilesAPI(genAI: GoogleGenerativeAI, uploadedFile: Uplo
 
 // Gemini解析実行関数（フォールバック付き）
 async function executeGeminiAnalysis(genAI: GoogleGenerativeAI, parts: Part[], method: string): Promise<string> {
+    console.log(`🔄 Gemini解析準備 (${method}):`, {
+        partsCount: parts.length,
+        hasTextPart: parts.some(p => 'text' in p),
+        hasMediaPart: parts.some(p => 'inlineData' in p || 'fileData' in p)
+    });
+
     // Flash モデル試行
     try {
         const model = genAI.getGenerativeModel({
